@@ -26,13 +26,8 @@ struct trackbar_info {
     MainWindow *main_window;
 };
 
-void myButtonName_callback(int state, void* userData) {
-    // do something
-    // qDebug() <<"test";
-}
-
-void MainWindow::on_trackbar(int a , void *b) {
-    auto tb = (trackbar_info*)b;
+/*void MainWindow::on_trackbar(int a , void *b) {
+    /*auto tb = (trackbar_info*)b;
     if(tb->old_blur != tb->blur) {
         if(tb->blur % 2 == 0)
             tb->blur++;
@@ -40,58 +35,51 @@ void MainWindow::on_trackbar(int a , void *b) {
     }
 
     Mat blurred_image;
-    medianBlur(tb->img, blurred_image, tb->blur);
+    medianBlur(this->img, blurred_image, this->blur);
 
     Mat gray_image;
     cvtColor(blurred_image, gray_image, COLOR_BGR2GRAY);
 
     Mat canny_image;
-    Canny(gray_image, canny_image, tb->minCan, tb->maxCan);
-
-    Mat print;
-    cvtColor(canny_image, print, COLOR_BGR2RGB);
-    tb->main_window->ui->scanImage->setPixmap(QPixmap::fromImage(QImage(print.data, print.cols, print.rows, print.step, QImage::Format_RGB888)));
-    tb->main_window->show();
-}
-
-Mat MainWindow::preprocess(Mat img) {
-    namedWindow("Trackbars", WINDOW_NORMAL);
-    createButton("Accept", myButtonName_callback, NULL, QT_PUSH_BUTTON|QT_NEW_BUTTONBAR);// create a push button in a new row
-
-    double height = 800;
-    Mat image;
-    Size imageSize(int(height / img.rows * img.cols), height);
-    cv::resize(img, image, imageSize);
-
-    auto *tb = new trackbar_info(image, this);
-    createTrackbar("minCan", "", &tb->minCan, 500, on_trackbar, tb);
-    createTrackbar("maxCan", "", &tb->maxCan, 500, on_trackbar, tb);
-    createTrackbar("blur", "", &tb->blur, 99, on_trackbar, tb);
-
-    Mat blurred_image;
-    medianBlur(image, blurred_image, tb->blur);
-
-    Mat gray_image;
-    cvtColor(blurred_image, gray_image, COLOR_BGR2GRAY);
-
-    Mat canny_image;
-    Canny(gray_image, canny_image, tb->minCan, tb->maxCan);
+    Canny(gray_image, canny_image, this->minCan, this->maxCan);
 
     Mat print;
     cvtColor(canny_image, print, COLOR_BGR2RGB);
     this->ui->scanImage->setPixmap(QPixmap::fromImage(QImage(print.data, print.cols, print.rows, print.step, QImage::Format_RGB888)));
     this->show();
+}*/
 
-    return canny_image;
+void MainWindow::preprocess() {
+  //  namedWindow("Trackbars", WINDOW_NORMAL);
+   // createButton("Accept", myButtonName_callback, NULL, QT_PUSH_BUTTON|QT_NEW_BUTTONBAR);// create a push button in a new row
+
+   // this->img = this->img;
+   /* auto *tb = new trackbar_info(image, this);
+    createTrackbar("minCan", "", &tb->minCan, 500, on_trackbar, tb);
+    createTrackbar("maxCan", "", &tb->maxCan, 500, on_trackbar, tb);
+    createTrackbar("blur", "", &tb->blur, 99, on_trackbar, tb);*/
+
+    Mat blurred_image;
+    medianBlur(this->img, blurred_image, this->blur);
+
+    Mat gray_image;
+    cvtColor(blurred_image, gray_image, COLOR_BGR2GRAY);
+
+    Mat canny_image;
+    Canny(gray_image, canny_image, this->minCan, this->maxCan);
+    Mat print;
+    cvtColor(canny_image, print, COLOR_BGR2RGB);
+    this->ui->scanImage->setPixmap(QPixmap::fromImage(QImage(print.data, print.cols, print.rows, print.step, QImage::Format_RGB888)));
+    this->p_img = canny_image;
 }
 
-vector<Point> getContours(Mat &preprocessed, Mat &orgImg) {
+vector<Point> MainWindow::getContours() {
     vector<vector<Point>> contours;
     vector<Vec4i> hierarchy;
     vector<Point> res;
     double maxArea = 0;
     int max = 0;
-    findContours(preprocessed, contours, hierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE);
+    findContours(this->, contours, hierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE);
     vector<vector<Point>> conPoly(contours.size());
     for (uint32_t i = 0; i < contours.size(); i++) {
         double area = contourArea(contours[i]);
@@ -121,19 +109,62 @@ MainWindow::MainWindow(QWidget *parent) :
     ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
-
+    this->setCentralWidget(this->centralWidget());
     this->setFixedSize(1280,768);
-    string path = "src.jpg";
+    string path = "src2.jpg";
     Mat orgImg, resizedImg;
+
     orgImg = imread(path);
-    Mat preprocessed = this->preprocess(orgImg);
-    auto points = getContours(preprocessed, orgImg);
-    drawPoints(orgImg, points);
-    cv::resize(orgImg, resizedImg, Size(), 0.3, 0.3);
+    this->orgImg = orgImg;
+    double height = 800;
+    Mat image;
+    Size imageSize(int(height / orgImg.rows * orgImg.cols), height);
+    cv::resize(orgImg, image, imageSize);
+    this->img = image;
+
+    this->preprocess();
+    //cv::resize(orgImg, resizedImg, Size(), 0.3, 0.3);
+    //qDebug() << ui->a;
     waitKey(0);
 }
 
 MainWindow::~MainWindow()
 {
     delete ui;
+}
+
+void MainWindow::on_maxCan_slider_valueChanged(int value)
+{
+    this->maxCan = value;
+    preprocess();
+}
+
+void MainWindow::on_minCan_slider_valueChanged(int value)
+{
+    this->minCan = value;
+    preprocess();
+}
+
+void MainWindow::on_blur_slider_valueChanged(int value)
+{
+    if(value % 2 == 0)
+        value++;
+    this->blur = value;
+    preprocess();
+}
+
+void MainWindow::on_pushButton_clicked()
+{
+    this->ui->blur_slider->setEnabled(false);
+    this->ui->minCan_slider->setEnabled(false);
+    this->ui->maxCan_slider->setEnabled(false);
+    auto points = getContours();
+    drawPoints(points);
+}
+
+void MainWindow::on_pushButton_2_clicked()
+{
+    this->ui->blur_slider->setEnabled(true);
+    this->ui->minCan_slider->setEnabled(true);
+    this->ui->maxCan_slider->setEnabled(true);
 }

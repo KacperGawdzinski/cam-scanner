@@ -16,9 +16,26 @@ public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
+private slots:
+    void on_maxCan_slider_valueChanged(int value);
+
+    void on_minCan_slider_valueChanged(int value);
+
+    void on_blur_slider_valueChanged(int value);
+
+    void on_pushButton_clicked();
+
+    void on_pushButton_2_clicked();
+
 private:
     Ui::MainWindow *ui;
-    cv::Mat preprocess(cv::Mat img);
-    static void on_trackbar(int, void*);
+    cv::Mat orgImg;
+    cv::Mat img;
+    cv::Mat p_img;
+    int minCan = 30;
+    int maxCan = 50;
+    int blur = 9;
+    void preprocess();
+    void on_trackbar(int, void*);
 };
 #endif // MAINWINDOW_H
