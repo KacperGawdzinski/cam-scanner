@@ -16,49 +16,7 @@
 using namespace cv;
 using namespace std;
 
-struct trackbar_info {
-    trackbar_info(Mat i, MainWindow *mw) : img(i), main_window(mw) {}
-    cv::Mat img;
-    int minCan = 30;
-    int maxCan = 50;
-    int blur = 9;
-    int old_blur = 9;
-    MainWindow *main_window;
-};
-
-/*void MainWindow::on_trackbar(int a , void *b) {
-    /*auto tb = (trackbar_info*)b;
-    if(tb->old_blur != tb->blur) {
-        if(tb->blur % 2 == 0)
-            tb->blur++;
-        tb->old_blur = tb->blur;
-    }
-
-    Mat blurred_image;
-    medianBlur(this->img, blurred_image, this->blur);
-
-    Mat gray_image;
-    cvtColor(blurred_image, gray_image, COLOR_BGR2GRAY);
-
-    Mat canny_image;
-    Canny(gray_image, canny_image, this->minCan, this->maxCan);
-
-    Mat print;
-    cvtColor(canny_image, print, COLOR_BGR2RGB);
-    this->ui->scanImage->setPixmap(QPixmap::fromImage(QImage(print.data, print.cols, print.rows, print.step, QImage::Format_RGB888)));
-    this->show();
-}*/
-
 void MainWindow::preprocess() {
-  //  namedWindow("Trackbars", WINDOW_NORMAL);
-   // createButton("Accept", myButtonName_callback, NULL, QT_PUSH_BUTTON|QT_NEW_BUTTONBAR);// create a push button in a new row
-
-   // this->img = this->img;
-   /* auto *tb = new trackbar_info(image, this);
-    createTrackbar("minCan", "", &tb->minCan, 500, on_trackbar, tb);
-    createTrackbar("maxCan", "", &tb->maxCan, 500, on_trackbar, tb);
-    createTrackbar("blur", "", &tb->blur, 99, on_trackbar, tb);*/
-
     Mat blurred_image;
     medianBlur(this->img, blurred_image, this->blur);
 
@@ -67,9 +25,18 @@ void MainWindow::preprocess() {
 
     Mat canny_image;
     Canny(gray_image, canny_image, this->minCan, this->maxCan);
+
     Mat print;
     cvtColor(canny_image, print, COLOR_BGR2RGB);
+
+    int min = std::min(print.cols, print.rows);
+    if(min == print.cols)
+        this->ui->scanImage->resize(min, 680);
+    else
+        this->ui->scanImage->resize(680, min);
+
     this->ui->scanImage->setPixmap(QPixmap::fromImage(QImage(print.data, print.cols, print.rows, print.step, QImage::Format_RGB888)));
+
     this->p_img = canny_image;
 }
 
@@ -79,22 +46,25 @@ vector<Point> MainWindow::getContours() {
     vector<Point> res;
     double maxArea = 0;
     int max = 0;
-    findContours(this->, contours, hierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE);
+    findContours(this->p_img, contours, hierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE);
     vector<vector<Point>> conPoly(contours.size());
     for (uint32_t i = 0; i < contours.size(); i++) {
         double area = contourArea(contours[i]);
-        if (area > 2000) {
-            double perimeter = arcLength(contours[i], true);
-            approxPolyDP(contours[i], conPoly[i], 0.02 * perimeter, true);
-            if (area > maxArea && conPoly[i].size() == 4) {
+        //if (area > 2000) {
+            double perimeter = arcLength(contours[i], false);
+            approxPolyDP(contours[i], conPoly[i], 0.02 * perimeter, false);
+            if (area > maxArea) {
                 maxArea = area;
                 max = i;
                 //res = conPoly[i];
             }
-        }
+       // }
         //drawContours(orgImg, contours, i, Scalar(255, 0, 255), 10);
     }
-    drawContours(orgImg, contours, max, Scalar(255, 0, 255), 10);
+    Mat output = this->img;
+    drawContours(output, contours, max, Scalar(255, 0, 255), 5);
+    cvtColor(output, output, COLOR_BGR2RGB);
+    this->ui->scanImage->setPixmap(QPixmap::fromImage(QImage(output.data, output.cols, output.rows, output.step, QImage::Format_RGB888)).scaled(680, 680, Qt::KeepAspectRatio));
     return contours[max];
 }
 
@@ -110,21 +80,19 @@ MainWindow::MainWindow(QWidget *parent) :
 {
     ui->setupUi(this);
     this->setCentralWidget(this->centralWidget());
-    this->setFixedSize(1280,768);
     string path = "src2.jpg";
-    Mat orgImg, resizedImg;
+    Mat orgImg, image;
 
     orgImg = imread(path);
     this->orgImg = orgImg;
-    double height = 800;
-    Mat image;
-    Size imageSize(int(height / orgImg.rows * orgImg.cols), height);
-    cv::resize(orgImg, image, imageSize);
-    this->img = image;
+    int max = std::max(orgImg.cols, orgImg.rows);
+    if(max > 680) {
+        this->aspect_ratio = 680 / (double)max;
+        cv::resize(orgImg, image, Size(), aspect_ratio, aspect_ratio);
+    }
 
+    this->img = image;
     this->preprocess();
-    //cv::resize(orgImg, resizedImg, Size(), 0.3, 0.3);
-    //qDebug() << ui->a;
     waitKey(0);
 }
 
@@ -159,7 +127,7 @@ void MainWindow::on_pushButton_clicked()
     this->ui->minCan_slider->setEnabled(false);
     this->ui->maxCan_slider->setEnabled(false);
     auto points = getContours();
-    drawPoints(points);
+    //drawPoints(points);
 }
 
 void MainWindow::on_pushButton_2_clicked()

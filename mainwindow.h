@@ -33,9 +33,11 @@ private:
     cv::Mat img;
     cv::Mat p_img;
     int minCan = 30;
+    double aspect_ratio;
     int maxCan = 50;
     int blur = 9;
     void preprocess();
+    std::vector<cv::Point> getContours();
     void on_trackbar(int, void*);
 };
 #endif // MAINWINDOW_H
