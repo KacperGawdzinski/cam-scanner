@@ -16,28 +16,63 @@
 using namespace cv;
 using namespace std;
 
+void MainWindow::drawPoints(vector<vector<Point>> points ) {
+    Mat output;
+    img.copyTo(output);
+    if(points.size() > 0) {
+        for(const auto &p2 : points[0]) {
+            circle(output, p2, 10, Scalar(255, 255, 255), FILLED);
+        }
+        this->ui->scanImage_2->setPixmap(QPixmap::fromImage(QImage(output.data, output.cols, output.rows, output.step, QImage::Format_RGB888)));
+    }
+}
+
 void MainWindow::preprocess() {
-    Mat blurred_image;
-    medianBlur(this->img, blurred_image, this->blur);
+    //https://stackoverflow.com/questions/7731742/square-detection-doesnt-find-squares/7732392#7732392
+    //upgraded with convexHull for contour amount reduction
+    Mat a;
+    this->img.copyTo(a);
+    Mat blurred(a);
+    medianBlur(a, blurred, this->blur);
 
-    Mat gray_image;
-    cvtColor(blurred_image, gray_image, COLOR_BGR2GRAY);
+    Mat gray0(blurred.size(), CV_8U), gray;
+    vector<vector<Point> > contours;
 
-    Mat canny_image;
-    Canny(gray_image, canny_image, this->minCan, this->maxCan);
+    for (int c = 0; c < 3; c++) {
+        int ch[] = {c, 0};
+        mixChannels(&blurred, 1, &gray0, 1, ch, 1);
+        const int threshold_level = 2;
+        for (int l = 0; l < threshold_level; l++) {
+            if (l == 0) {
+                Canny(gray0, gray, this->minCan, this->maxCan, 3);
+                dilate(gray, gray, Mat(), Point(-1,-1));
+            }
+            else {
+                gray = gray0 >= (l+1) * 255 / threshold_level;
+            }
 
-    Mat print;
-    cvtColor(canny_image, print, COLOR_BGR2RGB);
+            findContours(gray, contours, RETR_LIST, CHAIN_APPROX_SIMPLE);
 
-    int min = std::min(print.cols, print.rows);
-    if(min == print.cols)
-        this->ui->scanImage->resize(min, 680);
-    else
-        this->ui->scanImage->resize(680, min);
-
-    this->ui->scanImage->setPixmap(QPixmap::fromImage(QImage(print.data, print.cols, print.rows, print.step, QImage::Format_RGB888)));
-
-    this->p_img = canny_image;
+            vector<vector<Point>> hull(contours.size());
+            for( size_t i = 0; i < contours.size(); i++) {
+                convexHull( contours[i], hull[i] );
+            }
+            vector<vector<Point> > res;
+            vector<Point> approx;
+            vector<vector<Point>> conPoly(hull.size());
+            for (size_t i = 0; i < hull.size(); i++)
+            {
+                approxPolyDP(hull[i], approx, arcLength(Mat(hull[i]), true) * this->poly, true);
+                if (approx.size() == 4 &&
+                    fabs(contourArea(Mat(approx))) > 1000 &&
+                    isContourConvex(Mat(approx)))
+                {
+                    res.push_back(approx);
+                }
+            }
+            drawPoints(res);
+        }
+    }
 }
 
 vector<Point> MainWindow::getContours() {
@@ -46,32 +81,23 @@ vector<Point> MainWindow::getContours() {
     vector<Point> res;
     double maxArea = 0;
     int max = 0;
-    findContours(this->p_img, contours, hierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE);
+    findContours(this->p_img, contours, hierarchy, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
     vector<vector<Point>> conPoly(contours.size());
     for (uint32_t i = 0; i < contours.size(); i++) {
         double area = contourArea(contours[i]);
-        //if (area > 2000) {
-            double perimeter = arcLength(contours[i], false);
-            approxPolyDP(contours[i], conPoly[i], 0.02 * perimeter, false);
-            if (area > maxArea) {
-                maxArea = area;
-                max = i;
-                //res = conPoly[i];
-            }
-       // }
-        //drawContours(orgImg, contours, i, Scalar(255, 0, 255), 10);
+        double perimeter = arcLength(contours[i], true);
+        approxPolyDP(contours[i], conPoly[i], 0.02 * perimeter, true);
+        if (area > maxArea) {
+            maxArea = area;
+            max = i;
+        }
     }
-    Mat output = this->img;
+    Mat output;
+    this->img.copyTo(output);
     drawContours(output, contours, max, Scalar(255, 0, 255), 5);
     cvtColor(output, output, COLOR_BGR2RGB);
-    this->ui->scanImage->setPixmap(QPixmap::fromImage(QImage(output.data, output.cols, output.rows, output.step, QImage::Format_RGB888)).scaled(680, 680, Qt::KeepAspectRatio));
+    this->ui->scanImage->setPixmap(QPixmap::fromImage(QImage(output.data, output.cols, output.rows, output.step, QImage::Format_RGB888)));
     return contours[max];
-}
-
-void drawPoints(Mat &img, vector<Point> points) {
-    for(const auto &p : points) {
-        circle(img, p, 10, Scalar(255, 0, 255), FILLED);
-    }
 }
 
 MainWindow::MainWindow(QWidget *parent) :
@@ -80,17 +106,30 @@ MainWindow::MainWindow(QWidget *parent) :
 {
     ui->setupUi(this);
     this->setCentralWidget(this->centralWidget());
-    string path = "src2.jpg";
+    string path = "src4.jpg";
     Mat orgImg, image;
 
     orgImg = imread(path);
     this->orgImg = orgImg;
+
     int max = std::max(orgImg.cols, orgImg.rows);
-    if(max > 680) {
-        this->aspect_ratio = 680 / (double)max;
-        cv::resize(orgImg, image, Size(), aspect_ratio, aspect_ratio);
+    this->aspect_ratio = 500 / (double)max;
+    cv::resize(orgImg, image, Size(), aspect_ratio, aspect_ratio);
+
+    int min = std::min(image.cols, image.rows);
+    if(min == image.cols) {
+        this->ui->scanImage->resize(min, 500);
+        this->ui->scanImage_2->resize(min, 500);
+    }
+    else {
+        this->ui->scanImage->resize(500, min);
+        this->ui->scanImage_2->resize(500, min);
     }
 
+    int offset = 610 - (110 + this->ui->scanImage->geometry().topLeft().x());
+    if(offset > 0) {
+        this->ui->scanImage->move(offset, this->ui->scanImage->geometry().topLeft().y());
+    }
     this->img = image;
     this->preprocess();
     waitKey(0);
@@ -115,24 +154,14 @@ void MainWindow::on_minCan_slider_valueChanged(int value)
 
 void MainWindow::on_blur_slider_valueChanged(int value)
 {
-    if(value % 2 == 0)
+    if(value >> 2 == 1) {
         value++;
+    }
     this->blur = value;
+}
+
+void MainWindow::on_polyScale_slider_valueChanged(int value)
+{
+    this->poly = (double)value / 100;
     preprocess();
-}
-
-void MainWindow::on_pushButton_clicked()
-{
-    this->ui->blur_slider->setEnabled(false);
-    this->ui->minCan_slider->setEnabled(false);
-    this->ui->maxCan_slider->setEnabled(false);
-    auto points = getContours();
-    //drawPoints(points);
-}
-
-void MainWindow::on_pushButton_2_clicked()
-{
-    this->ui->blur_slider->setEnabled(true);
-    this->ui->minCan_slider->setEnabled(true);
-    this->ui->maxCan_slider->setEnabled(true);
 }
