@@ -5,16 +5,16 @@
 #include <opencv2/imgcodecs.hpp>
 
 QT_BEGIN_NAMESPACE
-namespace Ui { class MainWindow; }
+namespace Ui { class CamScanner; }
 QT_END_NAMESPACE
 
-class MainWindow : public QMainWindow
+class CamScanner : public QMainWindow
 {
     Q_OBJECT
 
 public:
-    MainWindow(QWidget *parent = nullptr);
-    ~MainWindow();
+    CamScanner(QWidget *parent = nullptr);
+    ~CamScanner();
 
 private slots:
     void on_maxCan_slider_valueChanged(int value);
@@ -25,20 +25,25 @@ private slots:
 
     void on_polyScale_slider_valueChanged(int value);
 
+    void on_pushButton_clicked();
+
 private:
-    Ui::MainWindow *ui;
+    Ui::CamScanner *ui;
     std::vector<std::vector<cv::Point>> contours;
     cv::Mat orgImg;
-    cv::Mat img;
-    cv::Mat p_img;
-    int minCan = 30;
-    double aspect_ratio;
+    cv::Mat preprocessed;
+    cv::Mat result;
+
+    double aspect_ratio = 1.0;
     double poly = 0.02;
+    int minCan = 30;
     int maxCan = 50;
     int blur = 9;
+    std::string filename;
+
     void preprocess();
     std::vector<cv::Point> getContours();
-    void drawPoints(std::vector<std::vector<cv::Point>>);
+    void drawPoints(std::vector<cv::Point>);
     void on_trackbar(int, void*);
 };
 #endif // MAINWINDOW_H

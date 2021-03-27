@@ -8,6 +8,7 @@
 #include <QtCore>
 #include <QtGui>
 #include <QPixmap>
+#include <QMessageBox>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
@@ -16,22 +17,50 @@
 using namespace cv;
 using namespace std;
 
-void MainWindow::drawPoints(vector<vector<Point>> points ) {
-    Mat output;
-    img.copyTo(output);
-    if(points.size() > 0) {
-        for(const auto &p2 : points[0]) {
-            circle(output, p2, 10, Scalar(255, 255, 255), FILLED);
+vector<Point> reorder(vector<Point> points) {
+    vector<Point> res;
+    vector<int> sum, diff;
+    for(uint i = 0; i < 4; i++) {
+        sum.push_back(points[i].x + points[i].y);
+        diff.push_back(points[i].x - points[i].y);
+    }
+    res.push_back(points[min_element(sum.begin(), sum.end()) - sum.begin()]);
+    res.push_back(points[max_element(diff.begin(), diff.end()) - diff.begin()]);
+    res.push_back(points[min_element(diff.begin(), diff.end()) - diff.begin()]);
+    res.push_back(points[max_element(sum.begin(), sum.end()) - sum.begin()]);
+    return res;
+}
+
+void CamScanner::drawPoints(vector<Point> points) {
+    if(points.size() == 4) {
+        Mat output;
+        this->preprocessed.copyTo(output);
+        cvtColor(output, output, COLOR_BGR2RGB);
+        int i = 1;
+        for(const auto &p : points) {
+            circle(output, p, 10, Scalar(255, 255, 255), FILLED);
+            i++;
         }
-        this->ui->scanImage_2->setPixmap(QPixmap::fromImage(QImage(output.data, output.cols, output.rows, output.step, QImage::Format_RGB888)));
+        this->ui->scanImage->setPixmap(QPixmap::fromImage(QImage(output.data, output.cols, output.rows, output.step, QImage::Format_RGB888)));
     }
 }
 
-void MainWindow::preprocess() {
+Mat getWarp(Mat img, vector<Point> p, float width, float height, double aspect_ratio) {
+    width = width / aspect_ratio;
+    height = height / aspect_ratio;
+    Mat warp;
+    Point2f src[4] = { p[0] / aspect_ratio, p[1] / aspect_ratio, p[2] / aspect_ratio, p[3] / aspect_ratio };
+    Point2f dst[4] = { {0.0, 0.0}, {width, 0.0}, {0.0, height}, {width, height} };
+    Mat matrix = getPerspectiveTransform(src, dst);
+    warpPerspective(img, warp, matrix, Point(width, height));
+    return warp;
+}
+
+void CamScanner::preprocess() {
     //https://stackoverflow.com/questions/7731742/square-detection-doesnt-find-squares/7732392#7732392
     //upgraded with convexHull for contour amount reduction
     Mat a;
-    this->img.copyTo(a);
+    this->preprocessed.copyTo(a);
     Mat blurred(a);
     medianBlur(a, blurred, this->blur);
 
@@ -70,98 +99,99 @@ void MainWindow::preprocess() {
                     res.push_back(approx);
                 }
             }
-            drawPoints(res);
+            if(res.size() > 0) {
+                auto ordered = reorder(res[0]);
+                drawPoints(ordered);
+                float w = max(ordered[1].x - ordered[0].x, ordered[3].x - ordered[2].x);
+                float h = max(ordered[2].y - ordered[0].y, ordered[3].y - ordered[1].y);
+                Mat imgWarp = getWarp(this->orgImg, ordered, w, h, aspect_ratio);
+                cvtColor(imgWarp, imgWarp, COLOR_BGR2RGB);
+                imgWarp.copyTo(this->result);
+
+                int max = std::max(imgWarp.cols, imgWarp.rows);
+                if(max > imgWarp.rows) {
+                    rotate(imgWarp, imgWarp, ROTATE_90_CLOCKWISE);
+                }
+
+                double render_aspect_ratio = 680 / (double)max;
+                cv::resize(imgWarp, imgWarp, Size(), render_aspect_ratio, render_aspect_ratio);
+
+                int min = std::min(imgWarp.cols, imgWarp.rows);
+                this->ui->render->resize(min, 680);
+
+                this->ui->render->setPixmap(QPixmap::fromImage(QImage(imgWarp.data, imgWarp.cols, imgWarp.rows, imgWarp.step, QImage::Format_RGB888)));
+            }
         }
     }
 }
 
-vector<Point> MainWindow::getContours() {
-    vector<vector<Point>> contours;
-    vector<Vec4i> hierarchy;
-    vector<Point> res;
-    double maxArea = 0;
-    int max = 0;
-    findContours(this->p_img, contours, hierarchy, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
-    vector<vector<Point>> conPoly(contours.size());
-    for (uint32_t i = 0; i < contours.size(); i++) {
-        double area = contourArea(contours[i]);
-        double perimeter = arcLength(contours[i], true);
-        approxPolyDP(contours[i], conPoly[i], 0.02 * perimeter, true);
-        if (area > maxArea) {
-            maxArea = area;
-            max = i;
-        }
-    }
-    Mat output;
-    this->img.copyTo(output);
-    drawContours(output, contours, max, Scalar(255, 0, 255), 5);
-    cvtColor(output, output, COLOR_BGR2RGB);
-    this->ui->scanImage->setPixmap(QPixmap::fromImage(QImage(output.data, output.cols, output.rows, output.step, QImage::Format_RGB888)));
-    return contours[max];
-}
-
-MainWindow::MainWindow(QWidget *parent) :
+CamScanner::CamScanner(QWidget *parent) :
     QMainWindow(parent),
-    ui(new Ui::MainWindow)
+    ui(new Ui::CamScanner)
 {
     ui->setupUi(this);
     this->setCentralWidget(this->centralWidget());
-    string path = "src4.jpg";
+    this->filename = "src.jpg";
     Mat orgImg, image;
 
-    orgImg = imread(path);
+    orgImg = imread(this->filename);
     this->orgImg = orgImg;
+    orgImg.copyTo(image);
 
     int max = std::max(orgImg.cols, orgImg.rows);
-    this->aspect_ratio = 500 / (double)max;
-    cv::resize(orgImg, image, Size(), aspect_ratio, aspect_ratio);
+    if(max > orgImg.rows) {
+        rotate(orgImg, image, ROTATE_90_CLOCKWISE);
+    }
+
+    this->aspect_ratio = 680 / (double)max;
+    cv::resize(image, image, Size(), aspect_ratio, aspect_ratio);
 
     int min = std::min(image.cols, image.rows);
-    if(min == image.cols) {
-        this->ui->scanImage->resize(min, 500);
-        this->ui->scanImage_2->resize(min, 500);
-    }
-    else {
-        this->ui->scanImage->resize(500, min);
-        this->ui->scanImage_2->resize(500, min);
-    }
+    this->ui->scanImage->resize(min, 680);
 
-    int offset = 610 - (110 + this->ui->scanImage->geometry().topLeft().x());
+    int offset = 500 - this->ui->scanImage->width();
     if(offset > 0) {
-        this->ui->scanImage->move(offset, this->ui->scanImage->geometry().topLeft().y());
+        this->ui->scanImage->move(this->ui->scanImage->geometry().topLeft().x() + offset, this->ui->scanImage->geometry().topLeft().y());
     }
-    this->img = image;
+    this->preprocessed = image;
     this->preprocess();
     waitKey(0);
 }
 
-MainWindow::~MainWindow()
+CamScanner::~CamScanner()
 {
     delete ui;
 }
 
-void MainWindow::on_maxCan_slider_valueChanged(int value)
+void CamScanner::on_maxCan_slider_valueChanged(int value)
 {
     this->maxCan = value;
     preprocess();
 }
 
-void MainWindow::on_minCan_slider_valueChanged(int value)
+void CamScanner::on_minCan_slider_valueChanged(int value)
 {
     this->minCan = value;
     preprocess();
 }
 
-void MainWindow::on_blur_slider_valueChanged(int value)
+void CamScanner::on_blur_slider_valueChanged(int value)
 {
-    if(value >> 2 == 1) {
+    if(value % 2 == 0) {
         value++;
     }
     this->blur = value;
 }
 
-void MainWindow::on_polyScale_slider_valueChanged(int value)
+void CamScanner::on_polyScale_slider_valueChanged(int value)
 {
     this->poly = (double)value / 100;
     preprocess();
+}
+
+void CamScanner::on_pushButton_clicked()
+{
+    cvtColor(this->result, this->result, COLOR_BGR2RGB);
+    imwrite("scan.jpg", this->result);
+    QMessageBox::information(this, tr("Confirmation"), tr("Scan successfully created."));
 }
