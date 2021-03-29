@@ -27,6 +27,10 @@ private slots:
 
     void on_pushButton_clicked();
 
+    void on_actionOpen_File_triggered();
+
+    void on_actionSave_triggered();
+
 private:
     Ui::CamScanner *ui;
     std::vector<std::vector<cv::Point>> contours;
@@ -35,12 +39,13 @@ private:
     cv::Mat result;
 
     double aspect_ratio = 1.0;
-    double poly = 0.02;
+    double poly = 0.15;
     int minCan = 30;
     int maxCan = 50;
     int blur = 9;
     std::string filename;
 
+    void load_img();
     void preprocess();
     std::vector<cv::Point> getContours();
     void drawPoints(std::vector<cv::Point>);

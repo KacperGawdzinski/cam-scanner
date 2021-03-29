@@ -9,6 +9,7 @@
 #include <QtGui>
 #include <QPixmap>
 #include <QMessageBox>
+#include <QFileDialog>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
@@ -117,6 +118,11 @@ void CamScanner::preprocess() {
                 cv::resize(imgWarp, imgWarp, Size(), render_aspect_ratio, render_aspect_ratio);
 
                 int min = std::min(imgWarp.cols, imgWarp.rows);
+                if(min > 500) {
+                    double ar = 500 / (double)min;
+                    cv::resize(imgWarp, imgWarp, Size(), ar, ar);
+                }
+
                 this->ui->render->resize(min, 680);
 
                 this->ui->render->setPixmap(QPixmap::fromImage(QImage(imgWarp.data, imgWarp.cols, imgWarp.rows, imgWarp.step, QImage::Format_RGB888)));
@@ -131,30 +137,6 @@ CamScanner::CamScanner(QWidget *parent) :
 {
     ui->setupUi(this);
     this->setCentralWidget(this->centralWidget());
-    this->filename = "src.jpg";
-    Mat orgImg, image;
-
-    orgImg = imread(this->filename);
-    this->orgImg = orgImg;
-    orgImg.copyTo(image);
-
-    int max = std::max(orgImg.cols, orgImg.rows);
-    if(max > orgImg.rows) {
-        rotate(orgImg, image, ROTATE_90_CLOCKWISE);
-    }
-
-    this->aspect_ratio = 680 / (double)max;
-    cv::resize(image, image, Size(), aspect_ratio, aspect_ratio);
-
-    int min = std::min(image.cols, image.rows);
-    this->ui->scanImage->resize(min, 680);
-
-    int offset = 500 - this->ui->scanImage->width();
-    if(offset > 0) {
-        this->ui->scanImage->move(this->ui->scanImage->geometry().topLeft().x() + offset, this->ui->scanImage->geometry().topLeft().y());
-    }
-    this->preprocessed = image;
-    this->preprocess();
     waitKey(0);
 }
 
@@ -191,7 +173,56 @@ void CamScanner::on_polyScale_slider_valueChanged(int value)
 
 void CamScanner::on_pushButton_clicked()
 {
-    cvtColor(this->result, this->result, COLOR_BGR2RGB);
-    imwrite("scan.jpg", this->result);
-    QMessageBox::information(this, tr("Confirmation"), tr("Scan successfully created."));
+    on_actionSave_triggered();
+}
+
+void CamScanner::on_actionOpen_File_triggered()
+{
+    this->filename = QFileDialog::getOpenFileName(this, "Open a file", QDir::currentPath()).toUtf8().constData();
+    if(!this->filename.empty())
+        load_img();
+}
+
+void CamScanner::load_img() {
+    Mat orgImg, image;
+
+    orgImg = imread(this->filename);
+    this->orgImg = orgImg;
+    orgImg.copyTo(image);
+
+    int max = std::max(orgImg.cols, orgImg.rows);
+    if(max > orgImg.rows) {
+        rotate(orgImg, image, ROTATE_90_CLOCKWISE);
+    }
+
+    this->aspect_ratio = 680 / (double)max;
+    cv::resize(image, image, Size(), aspect_ratio, aspect_ratio);
+
+    int min = std::min(image.cols, image.rows);
+    if(min > 500) {
+        double ar = 500 / (double)min;
+        cv::resize(image, image, Size(), ar, ar);
+        this->aspect_ratio *= ar;
+    }
+
+    this->ui->scanImage->resize(min, 680);
+    this->ui->scanImage->setPixmap(QPixmap::fromImage(QImage(image.data, image.cols, image.rows, image.step, QImage::Format_RGB888)));
+    int offset = 500 - this->ui->scanImage->width();
+    if(offset > 0) {
+        this->ui->scanImage->move(30 + offset, this->ui->scanImage->geometry().topLeft().y());
+    }
+    this->preprocessed = image;
+    this->preprocess();
+}
+
+void CamScanner::on_actionSave_triggered()
+{
+    if(!this->result.empty()) {
+        cvtColor(this->result, this->result, COLOR_BGR2RGB);
+        imwrite(QFileDialog::getSaveFileName(this, "Save file", QDir::currentPath(), "PNG (*.png);;JPG (*.jpg);;TIFF (*.tiff)").toUtf8().constData(), this->result);
+        QMessageBox::information(this, tr("Confirmation"), tr("Scan successfully created."));
+    }
+    else {
+        QMessageBox::information(this, tr("Error"), tr("No file was previously opened! Nothing to save"));
+    }
 }
